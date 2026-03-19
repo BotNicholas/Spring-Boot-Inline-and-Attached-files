@@ -1,5 +1,6 @@
 package org.botnicholas.projects.demofiles.controllers;
 
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -12,10 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import tools.jackson.databind.ObjectMapper;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -129,6 +127,7 @@ public class BigAndGeneratedFilesController {
                     throw new RuntimeException(e);
                 }
                 outputStream.write(("line " + i + "\n").getBytes());
+                outputStream.flush();
             }
         };
 
@@ -151,7 +150,10 @@ public class BigAndGeneratedFilesController {
     public ResponseEntity<StreamingResponseBody> getBigGeneratedTextFileAttachmentResponse() {
         log.info("Requested a big generated attachment Text file");
 
+        int chunkSize = 10;
+
         StreamingResponseBody stream = outputStream -> {
+            int chunk = 0;
             for (int i = 0; i < 100; i++) {
                 try {
                     Thread.sleep(100);
@@ -159,6 +161,11 @@ public class BigAndGeneratedFilesController {
                     throw new RuntimeException(e);
                 }
                 outputStream.write(("line " + i + "\n").getBytes());
+                chunk++;
+                if (chunkSize == chunk) {
+                    outputStream.flush();
+                    chunk=0;
+                }
             }
         };
         var headers = new HttpHeaders();
@@ -225,6 +232,50 @@ public class BigAndGeneratedFilesController {
         var headers = new HttpHeaders();
         headers.setContentDisposition(ContentDisposition.attachment().filename("ATTACHMENT_BIG_GENERATED_JSON_FILE.json").build());
         headers.setContentType(MediaType.APPLICATION_JSON);
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .headers(headers)
+                .body(stream);
+    }
+
+    /**
+     * @see <a href='https://testdatahub.com/generate_files'>Here you can generate dummy files like the 100MB one</a>
+     */
+    //Here I return a huge txt file of 100mb size. For such huge files you have to use StreamingResponseBody and write with chunks!
+    @SneakyThrows
+    @GetMapping(value = "/big/files/text/100mb/attachment")
+    public ResponseEntity<StreamingResponseBody> getBigTextFile500mdAttachmentResponse() {
+
+        var file = new File(Objects.requireNonNull(Thread.currentThread().getContextClassLoader().getResource("static/fakefile_100MB.txt")).toURI());
+
+        if (!file.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(ContentDisposition.attachment().filename(file.getName()).build());
+        headers.setContentType(MediaType.valueOf(Files.probeContentType(file.toPath())));
+        headers.setContentLength(file.length());
+
+        StreamingResponseBody stream = outputStream -> {
+            try (InputStream inputStream = new FileInputStream(file)) {
+//                byte[] buffer = new byte[500 * 1024 * 1024]; //500MB -> causes in huge server memory usage. 100 users == ☠️
+//                byte[] buffer = new byte[4 * 1024 * 1024]; //4MB -> still pretty big
+                byte[] buffer = new byte[64 * 1024]; //64KB
+//                byte[] buffer = new byte[4 * 1024]; //4KB -> too small. Leads low memory usage but increases CPU usage.
+
+                // bytesRead is required because read(buffer) may fill only part of the buffer;
+                // we must write only the bytes actually read
+                int bytesRead;
+
+                while((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                    //sending data immediately
+                    outputStream.flush();
+                }
+            }
+        };
 
         return ResponseEntity
                 .status(HttpStatus.OK)
