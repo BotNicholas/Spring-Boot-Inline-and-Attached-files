@@ -271,9 +271,10 @@ public class BigAndGeneratedFilesController {
 
                 while((bytesRead = inputStream.read(buffer)) != -1) {
                     outputStream.write(buffer, 0, bytesRead);
-                    //sending data immediately
-                    outputStream.flush();
                 }
+
+                //sending all the data
+                outputStream.flush();
             }
         };
 
